@@ -8,13 +8,17 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type ctxKey struct{}
 
 type manager struct {
-	pool *pgxpool.Pool
+	pool txOwner
+}
+
+type txOwner interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+	PgxExecutor
 }
 
 var errConnRequired = errors.New("pgxpool connection is required for create transaction manager")
@@ -23,7 +27,7 @@ type transaction struct {
 	pgx.Tx
 }
 
-func Init(conn *pgxpool.Pool) (Manager, error) {
+func Init(conn txOwner) (Manager, error) {
 	if conn == nil {
 		return nil, errConnRequired
 	}
@@ -53,7 +57,6 @@ func (m *manager) GetExtractor() Extractor {
 
 func (m *manager) Wrap(ctx context.Context, fn func(context.Context) error) error {
 	tx, err := m.pool.Begin(ctx)
-
 	if err != nil {
 		return fmt.Errorf("pool.Begin: cannot start transaction: %w", err)
 	}
