@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -14,6 +14,7 @@ type ctxKey struct{}
 
 type manager struct {
 	pool txOwner
+	log  *slog.Logger
 }
 
 type txOwner interface {
@@ -27,12 +28,13 @@ type transaction struct {
 	pgx.Tx
 }
 
-func Init(conn txOwner) (Manager, error) {
+func Init(conn txOwner, l ...*slog.Logger) (Manager, error) {
 	if conn == nil {
 		return nil, errConnRequired
 	}
 	return &manager{
 		pool: conn,
+		log:  l[0],
 	}, nil
 }
 
@@ -64,9 +66,13 @@ func (m *manager) Wrap(ctx context.Context, fn func(context.Context) error) erro
 	defer func() {
 		rollbackErr := tx.Rollback(ctx)
 		if rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
-			log.Printf("error when try to rollback transaction: %v", rollbackErr)
+			if m.log != nil {
+				m.log.Error("error when try to rollback transaction", slog.String("error", rollbackErr.Error()))
+			}
 		} else if rollbackErr == nil {
-			log.Println("transaction successfully rollbacked")
+			if m.log != nil {
+				m.log.Info("transaction successfully rollbacked")
+			}
 		}
 	}()
 
